@@ -77,7 +77,7 @@ textarea:focus-visible{outline:3px solid var(--tag);outline-offset:1px}
 <body>
 <div class="wrap">
   <h1>Mini Market Stock</h1>
-  <div class="chips"><button class="chip on" id="tP">Products</button><button class="chip" id="tS">Sales</button></div>
+  <div class="chips"><button class="chip on" id="tP">Products</button><button class="chip" id="tS">Sales</button><button class="chip" id="tA">Alerts</button></div>
   <div id="vP">
   <div class="stats">
     <div class="stat"><b id="sCount">0</b><span>Products</span></div>
@@ -110,6 +110,7 @@ textarea:focus-visible{outline:3px solid var(--tag);outline-offset:1px}
     </div>
     <div id="tView" style="display:none"></div>
   </div>
+  <div id="vA" style="display:none"></div>
 </div>
 <button class="fab" id="add">+ Add product</button>
 
@@ -410,14 +411,53 @@ textarea:focus-visible{outline:3px solid var(--tag);outline-offset:1px}
     });
     $("sList").innerHTML=h;
   }
+  var expRange=30;
+  function fdate(d){return new Date(d+"T00:00:00").toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"})}
+  function lowList(){return items.filter(isLow).sort(function(a,b){return a.qty-b.qty||a.name.localeCompare(b.name)})}
+  function renderAlerts(){
+    var low=lowList(),h='<div class="day"><span>Low and out of stock ('+low.length+')</span><button class="btn alt" id="copyLow" style="padding:4px 12px;font-size:13px"'+(low.length?'':' disabled')+'>Copy list</button></div>';
+    if(!low.length)h+='<div class="empty">No low-stock products.</div>';
+    low.forEach(function(p){
+      h+='<div class="srow"><div><b>'+esc(p.name)+'</b><div class="code">'+esc(p.cat||p.code||"")+'</div></div>'+
+        '<div class="sr"><b class="low">'+(p.qty<1?'Out of stock':p.qty+' left')+'</b><span style="color:var(--muted)">'+(p.min>0?'alert at '+p.min:'no alert level')+'</span></div></div>';
+    });
+    var ex=items.filter(function(p){return p.exp}).map(function(p){return {p:p,d:days(p.exp)}})
+      .filter(function(o){return expRange===0||o.d<=expRange}).sort(function(a,b){return a.d-b.d});
+    h+='<div class="chips" style="margin-top:18px">'+[[30,"Next 30 days"],[90,"Next 90 days"],[0,"All dates"]].map(function(r){
+      return '<button class="chip'+(r[0]===expRange?' on':'')+'" data-x="'+r[0]+'">'+r[1]+'</button>'}).join("")+'</div>';
+    h+='<div class="day" style="margin-top:0"><span>Expiry dates ('+ex.length+')</span></div>';
+    if(!ex.length)h+='<div class="empty">No products with an expiry date in this range.</div>';
+    ex.forEach(function(o){
+      var d=o.d,st,cl="";
+      if(d<0){st="Expired "+(-d)+" day"+(d==-1?"":"s")+" ago";cl="exp-bad"}
+      else if(d===0){st="Expires today";cl="exp-bad"}
+      else if(d<=30){st="In "+d+" day"+(d==1?"":"s");cl="exp-warn"}
+      else st="In "+d+" days";
+      h+='<div class="srow"><div><b>'+esc(o.p.name)+'</b><div class="code '+cl+'">'+st+'</div></div>'+
+        '<div class="sr"><b>'+fdate(o.p.exp)+'</b><span style="color:var(--muted)">Qty '+o.p.qty+'</span></div></div>';
+    });
+    $("vA").innerHTML=h;
+  }
+  $("vA").onclick=function(e){
+    var c=e.target.closest(".chip[data-x]");
+    if(c){expRange=parseInt(c.dataset.x,10);renderAlerts();return}
+    if(e.target.closest("#copyLow")){
+      var t="Low stock list\n"+lowList().map(function(p){return "- "+p.name+": "+(p.qty<1?"out of stock":p.qty+" left")}).join("\n");
+      (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){toast("List copied")},function(){
+        ask("Low stock list","Select all the text below and copy it.",{area:true,value:t,ok:"Done"},function(){})});
+    }
+  };
   function showTab(n){
-    var on=n==="S";
-    $("vP").style.display=on?"none":"";$("vS").style.display=on?"":"none";$("add").style.display=on?"none":"";
-    $("tP").classList.toggle("on",!on);$("tS").classList.toggle("on",on);
-    if(on)renderSales();
+    $("vP").style.display=n==="P"?"":"none";$("vS").style.display=n==="S"?"":"none";$("vA").style.display=n==="A"?"":"none";
+    $("add").style.display=n==="P"?"":"none";
+    ["P","S","A"].forEach(function(k){$("t"+k).classList.toggle("on",k===n)});
+    if(n==="S")renderSales();
+    if(n==="A")renderAlerts();
   }
   $("tP").onclick=function(){showTab("P")};
   $("tS").onclick=function(){showTab("S")};
+  $("tA").onclick=function(){showTab("A")};
+  ["sLow","sExp"].forEach(function(i){var el=$(i).parentNode;el.style.cursor="pointer";el.onclick=function(){showTab("A")}});
   $("vS").onclick=function(e){
     var m=e.target.closest(".chip[data-m]");
     if(m){curMode=m.dataset.m;renderSales();return}
