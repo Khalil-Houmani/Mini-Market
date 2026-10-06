@@ -27,10 +27,6 @@ A simple phone app for running a mini market. Add your products, track stock and
 - Everything is stored on your own phone
 - Backup and restore, so you can move your data or keep a copy
 
-## Screenshots
-
-Coming soon.
-
 ## Built with
 
 HTML, CSS and JavaScript, packaged as an Android app with Capacitor. Barcode reading uses the open-source ZXing library.
