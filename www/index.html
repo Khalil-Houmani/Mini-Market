@@ -67,6 +67,11 @@ video{width:100%;border-radius:10px;background:#000;margin-bottom:10px}
 .sr{text-align:right}.sr span{display:block;font-size:13px;color:var(--good)}.sr span.low{color:var(--bad)}
 textarea{width:100%;padding:12px;border:1.5px solid var(--line);border-radius:10px;background:var(--card);font:inherit;color:inherit}
 textarea:focus-visible{outline:3px solid var(--tag);outline-offset:1px}
+.photo{display:flex;gap:12px;align-items:center}
+.pprev{width:88px;height:88px;flex:none;border-radius:10px;border:1.5px dashed var(--line);background:var(--card) center/cover no-repeat;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted);text-align:center}
+.pbtns{display:flex;flex-direction:column;gap:6px;flex:1}
+.pbtns .btn{padding:9px 12px;font-size:14px}
+.thumb{width:44px;height:44px;border-radius:8px;object-fit:cover;vertical-align:middle;margin-right:10px;background:var(--line)}
 </style>
 </head>
 <body>
@@ -92,6 +97,8 @@ textarea:focus-visible{outline:3px solid var(--tag);outline-offset:1px}
   </div>
   </div>
   <div id="vS" style="display:none">
+    <div class="chips" id="modeChips"><button class="chip on" data-m="list">Sales list</button><button class="chip" data-m="day">Per day</button><button class="chip" data-m="week">Per week</button></div>
+    <div id="lView">
     <div class="chips"><button class="chip on" data-r="today">Today</button><button class="chip" data-r="week">Last 7 days</button><button class="chip" data-r="all">All</button></div>
     <div class="stats" style="grid-template-columns:repeat(3,1fr)">
       <div class="stat"><b id="rItems">0</b><span>Items sold</span></div>
@@ -100,6 +107,8 @@ textarea:focus-visible{outline:3px solid var(--tag);outline-offset:1px}
     </div>
     <div id="bsBox"></div>
     <div id="sList"></div>
+    </div>
+    <div id="tView" style="display:none"></div>
   </div>
 </div>
 <button class="fab" id="add">+ Add product</button>
@@ -107,6 +116,17 @@ textarea:focus-visible{outline:3px solid var(--tag);outline-offset:1px}
 <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="ft">
   <div class="panel">
     <h2 id="ft">Add product</h2>
+    <label>Photo</label>
+    <div class="photo">
+      <div class="pprev" id="pPrev">No photo</div>
+      <div class="pbtns">
+        <button class="btn alt" id="pCam" type="button">Take photo</button>
+        <button class="btn alt" id="pGal" type="button">Choose from gallery</button>
+        <button class="btn danger" id="pDel" type="button" style="display:none">Remove photo</button>
+      </div>
+    </div>
+    <input id="fCam" type="file" accept="image/*" capture="environment" hidden>
+    <input id="fGal" type="file" accept="image/*" hidden>
     <label for="fName">Product name</label>
     <input id="fName" autocomplete="off">
     <label for="fCat">Category</label>
@@ -162,7 +182,7 @@ textarea:focus-visible{outline:3px solid var(--tag);outline-offset:1px}
 </script>
 <script>
 (function(){
-  var KEY="minimarket-products-v1", items=[], sales=[], curRange="today", SKEY="minimarket-sales-v1", curCat="", editId=null, scanTarget=null, stream=null, scanTimer=null;
+  var KEY="minimarket-products-v1", items=[], photos={}, pendingPhoto, sales=[], curRange="today", SKEY="minimarket-sales-v1", curCat="", editId=null, scanTarget=null, stream=null, scanTimer=null;
   function load(){try{items=JSON.parse(localStorage.getItem(KEY)||"[]")}catch(e){items=[]}try{sales=JSON.parse(localStorage.getItem(SKEY)||"[]")}catch(e){sales=[]}}
   function persist(){try{localStorage.setItem(KEY,JSON.stringify(items));localStorage.setItem(SKEY,JSON.stringify(sales))}catch(e){toast("Could not save on this device")}}
   var $=function(id){return document.getElementById(id)};
@@ -195,7 +215,7 @@ textarea:focus-visible{outline:3px solid var(--tag);outline-offset:1px}
         else e="Expires "+p.exp;
       }
       return '<div class="item" data-id="'+p.id+'" tabindex="0" role="button">'+
-        '<h3>'+esc(p.name)+'</h3>'+
+        '<h3>'+(photos[p.id]?'<img class="thumb" alt="" src="'+photos[p.id]+'">':'')+esc(p.name)+'</h3>'+
         '<div class="pct'+(pc!==null&&pc<0?' neg':'')+'">'+(pc===null?'–':(Math.round(pc*10)/10)+'%')+'<small>profit</small></div>'+
         '<div class="code">'+esc(p.code||"No barcode")+(p.cat?'<span class="tag">'+esc(p.cat)+'</span>':'')+'</div>'+
         '<div class="meta"><span class="'+(lo?'low':'')+'">'+(p.qty<1?'Out of stock':'Qty '+p.qty+(lo?' (low)':''))+'</span><span>Cost '+money(p.cost)+'</span><span>Sell '+money(p.price)+'</span><span class="'+cls+'">'+e+'</span>'+
@@ -217,7 +237,7 @@ textarea:focus-visible{outline:3px solid var(--tag);outline-offset:1px}
     editId=id||null;var p=items.find(function(i){return i.id===id})||{name:"",code:"",cost:"",price:"",qty:"",exp:"",cat:"",min:""};
     $("ft").textContent=id?"Edit product":"Add product";
     $("fName").value=p.name;$("fCode").value=p.code;$("fCost").value=p.cost;$("fPrice").value=p.price;$("fQty").value=p.qty;$("fExp").value=p.exp;
-    $("fCat").value=p.cat||"";$("fMin").value=p.min||"";$("catList").innerHTML=getCats().map(function(c){return '<option value="'+esc(c)+'">'}).join("");
+    pendingPhoto=undefined;showPrev(id?photos[id]:null);$("fCat").value=p.cat||"";$("fMin").value=p.min||"";$("catList").innerHTML=getCats().map(function(c){return '<option value="'+esc(c)+'">'}).join("");
     $("del").style.display=id?"":"none";$("err").textContent="";calc();
     $("sheet").classList.add("open");setTimeout(function(){(id?$("fQty"):$("fName")).focus()},50);
   }
@@ -232,6 +252,9 @@ textarea:focus-visible{outline:3px solid var(--tag);outline-offset:1px}
     if(dup){err.textContent='Barcode already used by "'+dup.name+'". Edit that product instead.';return}
     var rec={id:editId||String(Date.now()),name:name,code:code,cost:num($("fCost").value),price:num($("fPrice").value),qty:Math.floor(num($("fQty").value)),exp:$("fExp").value,cat:$("fCat").value.trim(),min:Math.floor(num($("fMin").value))};
     if(editId)items=items.map(function(i){return i.id===editId?rec:i});else items.push(rec);
+    if(pendingPhoto!==undefined){
+      if(pendingPhoto){photos[rec.id]=pendingPhoto;dbPut(rec.id,pendingPhoto)}else{delete photos[rec.id];dbDel(rec.id)}
+    }
     persist();closeForm();render();toast(editId?"Product updated":"Product saved");
   }
 
@@ -280,7 +303,7 @@ textarea:focus-visible{outline:3px solid var(--tag);outline-offset:1px}
   $("cancel").onclick=closeForm;
   $("save").onclick=save;
   $("del").onclick=function(){
-    var id=editId;ask("Delete product","Delete this product? This cannot be undone.",{ok:"Delete"},function(){items=items.filter(function(i){return i.id!==id});persist();closeForm();render();toast("Product deleted")})};
+    var id=editId;ask("Delete product","Delete this product? This cannot be undone.",{ok:"Delete"},function(){items=items.filter(function(i){return i.id!==id});delete photos[id];dbDel(id);persist();closeForm();render();toast("Product deleted")})};
   $("q").oninput=render;
   ["fCost","fPrice"].forEach(function(i){$(i).oninput=calc});
   $("list").onclick=function(e){
@@ -335,9 +358,38 @@ textarea:focus-visible{outline:3px solid var(--tag);outline-offset:1px}
     persist();render();
     toast(p.name+(n>1?" x"+n:"")+": "+p.qty+" left"+(p.min>0&&p.qty<=p.min?" (low stock)":""));
   }
+  var curMode="list";
+  function weekStart(t){var d=new Date(t);d.setHours(0,0,0,0);d.setDate(d.getDate()-((d.getDay()+6)%7));return d.getTime()}
+  function renderTotals(){
+    var byDay={},byWeek={},now=Date.now(),tw=weekStart(now),t0=new Date(now);t0.setHours(0,0,0,0);
+    sales.forEach(function(x){
+      var q=x.q||1,r=x.price*q,pf=(x.price-x.cost)*q,dd=new Date(x.t);dd.setHours(0,0,0,0);
+      var dk=dd.getTime(),wk=weekStart(x.t),d=byDay[dk]||(byDay[dk]={i:0,r:0,p:0}),w=byWeek[wk]||(byWeek[wk]={i:0,r:0,p:0});
+      d.i+=q;d.r+=r;d.p+=pf;w.i+=q;w.r+=r;w.p+=pf;
+    });
+    var T=byDay[t0.getTime()]||{r:0},W=byWeek[tw]||{r:0};
+    var h='<div class="stats"><div class="stat"><b>'+money(T.r)+'</b><span>Today\'s sales</span></div><div class="stat"><b>'+money(W.r)+'</b><span>This week\'s sales</span></div></div>';
+    var map=curMode==="day"?byDay:byWeek,
+        keys=Object.keys(map).map(Number).sort(function(a,b){return b-a}).slice(0,curMode==="day"?30:12);
+    if(!keys.length){h+='<div class="empty">No sales recorded yet.</div>'}
+    else{
+      h+='<div class="day"><span>'+(curMode==="day"?"Last 30 days":"Last 12 weeks (Monday to Sunday)")+'</span></div>';
+      keys.forEach(function(k){
+        var o=map[k],lab,f={day:"numeric",month:"short"};
+        if(curMode==="day"){lab=new Date(k).toLocaleDateString(undefined,{weekday:"short",day:"numeric",month:"short"})}
+        else{var e=new Date(k);e.setDate(e.getDate()+6);lab=new Date(k).toLocaleDateString(undefined,f)+" to "+e.toLocaleDateString(undefined,f)+(k===tw?" (this week)":"")}
+        h+='<div class="srow"><div><b>'+esc(lab)+'</b><div class="code">'+o.i+' item'+(o.i==1?'':'s')+' sold</div></div>'+
+          '<div class="sr"><b>'+money(o.r)+'</b><span class="'+(o.p<0?'low':'')+'">'+(o.p<0?'':'+')+money(o.p)+' profit</span></div></div>';
+      });
+    }
+    $("tView").innerHTML=h;
+  }
   function renderSales(){
+    document.querySelectorAll("#modeChips .chip").forEach(function(c){c.classList.toggle("on",c.dataset.m===curMode)});
+    $("lView").style.display=curMode==="list"?"":"none";$("tView").style.display=curMode==="list"?"none":"";
+    if(curMode!=="list"){renderTotals();return}
     var st=curRange==="all"?0:(function(){var d=new Date();d.setHours(0,0,0,0);if(curRange==="week")d.setDate(d.getDate()-6);return d.getTime()})();
-    document.querySelectorAll("#vS .chip").forEach(function(c){c.classList.toggle("on",c.dataset.r===curRange)});
+    document.querySelectorAll("#vS .chip[data-r]").forEach(function(c){c.classList.toggle("on",c.dataset.r===curRange)});
     var list=sales.filter(function(x){return x.t>=st}).sort(function(a,b){return b.t-a.t});
     var rev=0,pr=0;var it=0;list.forEach(function(x){var q=x.q||1;it+=q;rev+=x.price*q;pr+=(x.price-x.cost)*q});
     $("rItems").textContent=it;$("rRev").textContent=money(rev);$("rProfit").textContent=money(pr);
@@ -367,6 +419,8 @@ textarea:focus-visible{outline:3px solid var(--tag);outline-offset:1px}
   $("tP").onclick=function(){showTab("P")};
   $("tS").onclick=function(){showTab("S")};
   $("vS").onclick=function(e){
+    var m=e.target.closest(".chip[data-m]");
+    if(m){curMode=m.dataset.m;renderSales();return}
     var c=e.target.closest(".chip[data-r]");
     if(c){curRange=c.dataset.r;renderSales();return}
     var u=e.target.closest("[data-undo]");
@@ -374,7 +428,54 @@ textarea:focus-visible{outline:3px solid var(--tag);outline-offset:1px}
       if(i>-1){var r=sales.splice(i,1)[0],p=items.find(function(x){return x.id===r.pid});
         if(p)p.qty+=(r.q||1);persist();render();renderSales();toast("Sale undone")}}
   };
+  var idb=null;
+  function openDB(){return new Promise(function(res){
+    try{var r=indexedDB.open("minimarket-photos",1);
+      r.onupgradeneeded=function(){r.result.createObjectStore("p")};
+      r.onsuccess=function(){idb=r.result;res(true)};
+      r.onerror=function(){res(false)};
+    }catch(e){res(false)}})}
+  function dbAll(){return new Promise(function(res){
+    if(!idb)return res(null);
+    try{var out={},q=idb.transaction("p").objectStore("p").openCursor();
+      q.onsuccess=function(){var c=q.result;if(c){out[c.key]=c.value;c.continue()}else res(out)};
+      q.onerror=function(){res(null)};
+    }catch(e){res(null)}})}
+  function dbPut(id,v){if(!idb)return;try{idb.transaction("p","readwrite").objectStore("p").put(v,id)}catch(e){}}
+  function dbDel(id){if(!idb)return;try{idb.transaction("p","readwrite").objectStore("p").delete(id)}catch(e){}}
+  function showPrev(u){
+    var el=$("pPrev");
+    el.style.backgroundImage=u?'url("'+u+'")':"";
+    el.textContent=u?"":"No photo";
+    $("pDel").style.display=u?"":"none";
+  }
+  function shrink(file,cb){
+    var r=new FileReader();
+    r.onload=function(){
+      var im=new Image();
+      im.onload=function(){
+        var sc=Math.min(1,480/Math.max(im.width,im.height)),cv=document.createElement("canvas");
+        cv.width=Math.round(im.width*sc);cv.height=Math.round(im.height*sc);
+        cv.getContext("2d").drawImage(im,0,0,cv.width,cv.height);
+        cb(cv.toDataURL("image/jpeg",0.7));
+      };
+      im.onerror=function(){cb(null)};
+      im.src=r.result;
+    };
+    r.onerror=function(){cb(null)};
+    r.readAsDataURL(file);
+  }
+  function onPick(e){
+    var f=e.target.files&&e.target.files[0];e.target.value="";
+    if(!f)return;
+    shrink(f,function(u){if(!u){toast("Could not read that photo");return}pendingPhoto=u;showPrev(u)});
+  }
+  $("fCam").onchange=onPick;$("fGal").onchange=onPick;
+  $("pCam").onclick=function(){$("fCam").click()};
+  $("pGal").onclick=function(){$("fGal").click()};
+  $("pDel").onclick=function(){pendingPhoto=null;showPrev(null)};
   load();render();
+  openDB().then(dbAll).then(function(o){if(o){photos=o;render()}});
 })();
 </script>
 </body>
